@@ -1,0 +1,48 @@
+name: koz_alma_ai
+description: KozAlma AI — Visual assistant for visually impaired users
+
+publish_to: "none"
+
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # State management
+  provider: ^6.1.1
+
+  # Camera
+  camera: ^0.11.0
+
+  # HTTP
+  http: ^1.2.0
+
+  # Audio playback
+  audioplayers: ^6.0.0
+
+  # Text-to-Speech (local, RU/KZ)
+  flutter_tts: ^4.2.0
+
+  # Note: light sensor and flashlight are handled via the camera package
+  # (CameraController.setFlashMode). No separate light/torch packages needed.
+
+  # Shared preferences
+  shared_preferences: ^2.2.2
+
+  # Path
+  path_provider: ^2.1.2
+
+  # Material
+  cupertino_icons: ^1.0.6
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.1
+
+flutter:
+  uses-material-design: true

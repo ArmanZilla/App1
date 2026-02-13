@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KozAlma AI — Панель</title>
+    <link rel="stylesheet" href="/static/admin.css">
+</head>
+
+<body>
+    <header class="admin-header">
+        <h1>📊 KozAlma AI — Unknown Images</h1>
+        <nav>
+            <a href="/admin" class="nav-link active">Группы</a>
+            <a href="/admin/logout" class="nav-link">Выход</a>
+        </nav>
+    </header>
+
+    <main class="container">
+        {% if groups %}
+        <div class="stats-bar">
+            <span>Всего групп: <strong>{{ groups|length }}</strong></span>
+            <span>Всего изображений: <strong>{{ groups|map(attribute='image_count')|sum }}</strong></span>
+        </div>
+
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Дата</th>
+                    <th>Группа</th>
+                    <th>Изображений</th>
+                    <th>Действия</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for g in groups %}
+                <tr>
+                    <td>{{ g.date }}</td>
+                    <td><code>{{ g.group_id }}</code></td>
+                    <td>{{ g.image_count }}</td>
+                    <td>
+                        <a href="/admin/download/{{ g.group_id }}" class="btn-sm">
+                            📥 Скачать ZIP
+                        </a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="empty-state">
+            <p>🔍 Нет неизвестных изображений</p>
+            <p class="hint">Изображения появятся после сканирования с низкой уверенностью</p>
+        </div>
+        {% endif %}
+    </main>
+</body>
+
+</html>
