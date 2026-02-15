@@ -34,11 +34,11 @@ class AppState extends ChangeNotifier {
   }
 
   void increaseSpeed() {
-    setTtsSpeed(_ttsSpeed + 0.25);
+    setTtsSpeed(_ttsSpeed + 0.1);
   }
 
   void decreaseSpeed() {
-    setTtsSpeed(_ttsSpeed - 0.25);
+    setTtsSpeed(_ttsSpeed - 0.1);
   }
 
   // ── Send Unknown ──

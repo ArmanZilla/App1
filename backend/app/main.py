@@ -2,6 +2,7 @@
 KozAlma AI — FastAPI Application Entry Point.
 
 Loads ML models on startup, mounts static files, and includes all routers.
+CORS is enabled for Flutter Web development.
 """
 
 from __future__ import annotations
@@ -11,6 +12,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app.config import get_settings
@@ -86,6 +88,16 @@ def create_app() -> FastAPI:
         version="1.0.0",
         lifespan=lifespan,
     )
+
+    # ── CORS — must be added BEFORE routers ──
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    logger.warning("CORS middleware enabled: allow_origins=['*']")
 
     # ── Mount static files for admin panel ──
     static_dir = Path(__file__).parent / "admin_web" / "static"

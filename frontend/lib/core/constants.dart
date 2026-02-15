@@ -1,11 +1,27 @@
 /// KozAlma AI — App Constants.
+///
+/// Platform-aware API URL selection:
+///   - Web (Chrome): http://localhost:8000
+///   - Android emulator: http://10.0.2.2:8000
+///   - Physical device / iOS / desktop: http://localhost:8000
 library;
+
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'platform_util.dart';
 
 class AppConstants {
   AppConstants._();
 
-  /// Backend API base URL (change for production).
-  static const String apiBaseUrl = 'http://10.0.2.2:8000';
+  /// Backend API base URL — auto-selected by platform.
+  static String get apiBaseUrl {
+    if (kIsWeb) {
+      return 'http://192.168.100.152:8000';
+    }
+    if (isAndroid()) {
+      return 'http://192.168.100.152:8000';
+    }
+    return 'http://192.168.100.152:8000';
+  }
 
   /// Supported languages.
   static const List<String> languages = ['ru', 'kz'];
@@ -13,9 +29,9 @@ class AppConstants {
   /// Default language.
   static const String defaultLang = 'ru';
 
-  /// TTS speed range.
-  static const double minSpeed = 0.5;
-  static const double maxSpeed = 2.0;
+  /// TTS speed range (user-facing values, normalized to engine range internally).
+  static const double minSpeed = 0.7;
+  static const double maxSpeed = 3.0;
   static const double defaultSpeed = 1.0;
 
   /// Light level threshold for auto-flashlight (lux).

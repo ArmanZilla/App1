@@ -5,9 +5,11 @@
 /// - Accessible back button with voice feedback
 /// - Language toggle in header
 /// - Edge volume controller zones
+/// - Auto-speaks scan result immediately after scan completes
 library;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:camera/camera.dart';
 import '../core/accessibility.dart';
@@ -80,6 +82,12 @@ class _CameraScreenState extends State<CameraScreen> {
 
       state.setLastScanResult(result);
 
+      // ── Auto-speak scan result immediately ──
+      await _speakScanResult(result, lang);
+
+      // Haptic feedback on scan complete
+      HapticFeedback.mediumImpact();
+
       if (mounted) {
         Navigator.push(
           context,
@@ -94,6 +102,44 @@ class _CameraScreenState extends State<CameraScreen> {
     }
 
     setState(() => _scanning = false);
+  }
+
+  /// Speak the scan result text — uses backend audio if available,
+  /// otherwise speaks the localized text.
+  Future<void> _speakScanResult(Map<String, dynamic> result, String lang) async {
+    final isUnknown = result['is_unknown'] == true;
+    final detections = (result['detections'] as List?) ?? [];
+    final text = result['text']?.toString() ?? '';
+
+    if (detections.isEmpty && isUnknown) {
+      // No detections at all
+      await _tts.speak(
+        lang == 'ru' ? 'Объекты не обнаружены' : 'Нысандар табылмады',
+        lang: lang,
+      );
+      return;
+    }
+
+    if (isUnknown && detections.isNotEmpty) {
+      // Some detections but has unknowns
+      final prefix = lang == 'ru'
+          ? 'Обнаружены неизвестные объекты. '
+          : 'Белгісіз нысандар анықталды. ';
+      if (text.isNotEmpty) {
+        await _tts.speak('$prefix$text', lang: lang);
+      } else {
+        await _tts.speak(prefix, lang: lang);
+      }
+      return;
+    }
+
+    // Normal result — play backend audio or speak text
+    final audio = result['audio_base64'];
+    if (audio != null && audio.toString().isNotEmpty) {
+      await _tts.playBase64Audio(audio.toString());
+    } else if (text.isNotEmpty) {
+      await _tts.speak(text, lang: lang);
+    }
   }
 
   @override
