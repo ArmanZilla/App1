@@ -51,23 +51,39 @@ async def lifespan(app: FastAPI):
 
     tts_engine = TTSEngine()
 
-    # ── S3 / Unknown Manager ──
+    # ── S3 / Yandex Object Storage — Unknown Manager ──
+    #
+    # FIX: wrapped in try/except so the app always starts, even if S3
+    #      credentials are wrong or the bucket does not exist.
     unknown_manager = None
-    if settings.s3_access_key:
-        from app.storage.s3_client import S3Client
-        from app.storage.unknown_manager import UnknownManager
+    if settings.s3_access_key and settings.s3_secret_key:
+        try:
+            from app.storage.s3_client import S3Client
+            from app.storage.unknown_manager import UnknownManager
 
-        s3 = S3Client(
-            access_key=settings.s3_access_key,
-            secret_key=settings.s3_secret_key,
-            bucket=settings.s3_bucket,
-            endpoint=settings.s3_endpoint,
-            region=settings.s3_region,
-        )
-        unknown_manager = UnknownManager(s3)
-        logger.info("S3 unknown manager enabled")
+            s3 = S3Client(
+                access_key=settings.s3_access_key,
+                secret_key=settings.s3_secret_key,
+                bucket=settings.s3_bucket,
+                endpoint=settings.s3_endpoint,
+                region=settings.s3_region,
+            )
+
+            # Validate bucket access on startup (logs clearly on failure)
+            bucket_ok = s3.validate_bucket()
+            if bucket_ok:
+                unknown_manager = UnknownManager(s3)
+                logger.info("S3 unknown manager enabled (bucket=%s)", settings.s3_bucket)
+            else:
+                logger.warning(
+                    "S3 bucket '%s' is not accessible — unknown image storage disabled. "
+                    "Check credentials, bucket name, and endpoint.",
+                    settings.s3_bucket,
+                )
+        except Exception as exc:
+            logger.error("S3 initialization failed: %s — unknown image storage disabled", exc)
     else:
-        logger.warning("S3 credentials not set — unknown image storage disabled")
+        logger.warning("S3 credentials not set (S3_ACCESS_KEY / S3_SECRET_KEY) — unknown image storage disabled")
 
     # Store in app state for access in routes
     app.state.pipeline = pipeline
