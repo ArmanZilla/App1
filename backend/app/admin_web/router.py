@@ -9,13 +9,15 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import Any, Dict, List
 
-from fastapi import APIRouter, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi import APIRouter, Depends, Form, Request
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from itsdangerous import URLSafeTimedSerializer
 
 from app.admin_web.auth import verify_credentials
+from app.auth.jwt_utils import require_admin
 from app.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -77,11 +79,21 @@ async def dashboard(request: Request) -> HTMLResponse:
         return RedirectResponse(url="/admin/login", status_code=303)
 
     mgr = request.app.state.unknown_manager
-    groups = mgr.list_groups() if mgr else []
+    groups: List[Dict[str, Any]] = []
+    error_msg = ""
+
+    if mgr is None:
+        error_msg = "S3 storage not configured"
+    else:
+        try:
+            groups = mgr.list_groups()
+        except Exception as exc:
+            logger.error("Admin dashboard — failed to list groups: %s", exc)
+            error_msg = "Ошибка подключения к хранилищу"
 
     return templates.TemplateResponse(
         "dashboard.html",
-        {"request": request, "groups": groups},
+        {"request": request, "groups": groups, "error_msg": error_msg},
     )
 
 
@@ -95,7 +107,12 @@ async def download_group(group_id: str, request: Request) -> Response:
     if mgr is None:
         return Response(content=b"S3 not configured", status_code=500)
 
-    zip_bytes = mgr.download_group_zip(group_id)
+    try:
+        zip_bytes = mgr.download_group_zip(group_id)
+    except Exception as exc:
+        logger.error("Admin download failed for '%s': %s", group_id, exc)
+        return Response(content=b"Storage error", status_code=500)
+
     if zip_bytes is None:
         return Response(content=b"Not found", status_code=404)
 
@@ -113,3 +130,24 @@ async def logout(request: Request) -> Response:
     response = RedirectResponse(url="/admin/login", status_code=303)
     response.delete_cookie(SESSION_COOKIE)
     return response
+
+
+# ────────────────────────────────────────────────────────────────────
+# Admin API (JWT-protected, for future mobile/programmatic use)
+# ────────────────────────────────────────────────────────────────────
+
+@router.get("/api/groups")
+async def api_groups(
+    request: Request,
+    _admin: Dict[str, Any] = Depends(require_admin),
+) -> JSONResponse:
+    """List groups via JWT Bearer (admin role required)."""
+    mgr = request.app.state.unknown_manager
+    if mgr is None:
+        return JSONResponse({"groups": [], "error": "Storage not configured"})
+    try:
+        groups = mgr.list_groups()
+    except Exception as exc:
+        logger.error("Admin API groups failed: %s", exc)
+        return JSONResponse({"groups": [], "error": "Storage error"})
+    return JSONResponse({"groups": groups, "error": None})

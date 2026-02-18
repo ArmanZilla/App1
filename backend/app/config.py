@@ -53,6 +53,37 @@ class Settings(BaseSettings):
     # ── Dataset ─────────────────────────────────────────────────────────
     data_yaml_path: str = str(_ROOT.parent / "data" / "data.yaml")
 
+    # ── Redis ───────────────────────────────────────────────────────────
+    redis_url: str = "redis://localhost:6379/0"
+
+    # ── OTP ─────────────────────────────────────────────────────────────
+    otp_ttl_seconds: int = 300          # 5 minutes
+    otp_cooldown_seconds: int = 60      # 1 minute between requests
+    otp_max_attempts: int = 5
+    otp_lock_seconds: int = 600         # 10 minutes lock
+    otp_dev_mode: bool = True           # print OTP to console
+    otp_hmac_secret: str = "change-me-otp-hmac-secret"
+    otp_salt: str = ""                   # SHA256 salt; auto-generated if empty
+
+    # ── JWT ─────────────────────────────────────────────────────────────
+    jwt_secret_key: str = "change-me-jwt-secret-key"
+    jwt_alg: str = "HS256"
+    access_token_expires_min: int = 30   # 30 minutes
+    refresh_token_expires_days: int = 30 # 30 days
+
+    # ── Admin identifiers (auto-admin on first login) ──────────────────
+    admin_identifiers: str = ""  # comma-separated: "admin@x.com,+7701..."
+
+    # ── SMTP ────────────────────────────────────────────────────────────
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_pass: str = ""
+    smtp_from: str = ""
+
+    # ── Database ────────────────────────────────────────────────────────
+    database_url: str = f"sqlite+aiosqlite:///{_ROOT / 'koz_alma.db'}"
+
 
 @lru_cache
 def get_settings() -> Settings:

@@ -30,6 +30,29 @@ async def lifespan(app: FastAPI):
     settings = get_settings()
     logger.info("Starting KozAlma AI backend...")
 
+    # ── Database (SQLite) — create tables ──
+    try:
+        from app.db.session import init_db
+        await init_db()
+        logger.info("Database initialized")
+    except Exception as exc:
+        logger.error("Database init failed: %s", exc)
+
+    # ── Redis ──
+    redis_client = None
+    try:
+        import redis.asyncio as aioredis
+        redis_client = aioredis.from_url(
+            settings.redis_url,
+            decode_responses=True,
+            socket_connect_timeout=5,
+        )
+        await redis_client.ping()
+        logger.info("✅ Redis connected (%s)", settings.redis_url)
+    except Exception as exc:
+        logger.warning("Redis not available: %s — auth endpoints will return 503", exc)
+        redis_client = None
+
     # ── ML models ──
     from app.ml.detector import YOLODetector
     from app.ml.depth import DepthEstimator
@@ -52,9 +75,6 @@ async def lifespan(app: FastAPI):
     tts_engine = TTSEngine()
 
     # ── S3 / Yandex Object Storage — Unknown Manager ──
-    #
-    # FIX: wrapped in try/except so the app always starts, even if S3
-    #      credentials are wrong or the bucket does not exist.
     unknown_manager = None
     if settings.s3_access_key and settings.s3_secret_key:
         try:
@@ -69,7 +89,6 @@ async def lifespan(app: FastAPI):
                 region=settings.s3_region,
             )
 
-            # Validate bucket access on startup (logs clearly on failure)
             bucket_ok = s3.validate_bucket()
             if bucket_ok:
                 unknown_manager = UnknownManager(s3)
@@ -83,17 +102,21 @@ async def lifespan(app: FastAPI):
         except Exception as exc:
             logger.error("S3 initialization failed: %s — unknown image storage disabled", exc)
     else:
-        logger.warning("S3 credentials not set (S3_ACCESS_KEY / S3_SECRET_KEY) — unknown image storage disabled")
+        logger.warning("S3 credentials not set — unknown image storage disabled")
 
     # Store in app state for access in routes
     app.state.pipeline = pipeline
     app.state.tts_engine = tts_engine
     app.state.unknown_manager = unknown_manager
+    app.state.redis = redis_client
 
     logger.info("✅ KozAlma AI backend ready")
     yield
 
+    # ── Shutdown ──
     logger.info("Shutting down KozAlma AI backend...")
+    if redis_client:
+        await redis_client.close()
 
 
 def create_app() -> FastAPI:
@@ -123,10 +146,12 @@ def create_app() -> FastAPI:
     # ── Include routers ──
     from app.api.routes.scan import router as scan_router
     from app.api.routes.unknown import router as unknown_router
+    from app.api.routes.auth import router as auth_router
     from app.admin_web.router import router as admin_router
 
     app.include_router(scan_router)
     app.include_router(unknown_router)
+    app.include_router(auth_router)
     app.include_router(admin_router)
 
     @app.get("/health")

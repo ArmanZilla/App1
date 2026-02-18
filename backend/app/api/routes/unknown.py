@@ -2,17 +2,19 @@
 KozAlma AI — /unknown Endpoints.
 
 List unknown image groups, view images, download as ZIP.
+Upload endpoints require JWT authentication.
 """
 
 from __future__ import annotations
 
 import logging
-from typing import List
+from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import Response
 
 from app.api.schemas import UnknownGroupItem, UnknownImageItem
+from app.auth.jwt_utils import get_current_user, get_optional_user
 
 logger = logging.getLogger(__name__)
 
@@ -21,11 +23,15 @@ router = APIRouter(prefix="/unknown", tags=["unknown"])
 
 @router.get("/groups", response_model=List[UnknownGroupItem])
 async def list_groups(request: Request) -> List[UnknownGroupItem]:
-    """List all unknown image groups."""
+    """List all unknown image groups (public for admin dashboard)."""
     mgr = request.app.state.unknown_manager
     if mgr is None:
         return []
-    groups = mgr.list_groups()
+    try:
+        groups = mgr.list_groups()
+    except Exception as exc:
+        logger.error("list_groups failed: %s", exc)
+        return []
     return [
         UnknownGroupItem(
             group_id=g["group_id"],
@@ -42,7 +48,11 @@ async def list_images(group_id: str, request: Request) -> List[UnknownImageItem]
     mgr = request.app.state.unknown_manager
     if mgr is None:
         return []
-    images = mgr.list_images(group_id)
+    try:
+        images = mgr.list_images(group_id)
+    except Exception as exc:
+        logger.error("list_images failed for '%s': %s", group_id, exc)
+        return []
     return [UnknownImageItem(**img) for img in images]
 
 
@@ -53,7 +63,12 @@ async def download_group(group_id: str, request: Request) -> Response:
     if mgr is None:
         return Response(content=b"", status_code=404)
 
-    zip_bytes = mgr.download_group_zip(group_id)
+    try:
+        zip_bytes = mgr.download_group_zip(group_id)
+    except Exception as exc:
+        logger.error("download_group failed for '%s': %s", group_id, exc)
+        return Response(content=b"Storage error", status_code=500)
+
     if zip_bytes is None:
         return Response(content=b"Group not found or empty", status_code=404)
 
@@ -63,3 +78,33 @@ async def download_group(group_id: str, request: Request) -> Response:
         media_type="application/zip",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@router.post("/upload")
+async def upload_unknown(
+    request: Request,
+    file: UploadFile = File(...),
+    session_id: Optional[str] = Form(None),
+    user: Dict[str, Any] = Depends(get_current_user),
+) -> dict:
+    """Upload an unknown image.  Requires JWT authentication.
+
+    Stores user_id from token in the image metadata.
+    """
+    mgr = request.app.state.unknown_manager
+    if mgr is None:
+        return {"error": "Storage not configured", "key": None}
+
+    image_bytes = await file.read()
+    metadata = {
+        "user_id": user.get("sub", "unknown"),
+        "uploaded_via": "api",
+    }
+
+    try:
+        key = mgr.store_image(image_bytes, metadata=metadata, session_id=session_id)
+    except Exception as exc:
+        logger.error("upload_unknown failed: %s", exc)
+        return {"error": "Upload failed", "key": None}
+
+    return {"key": key, "error": None}
