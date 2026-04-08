@@ -15,7 +15,7 @@ class AppConstants {
   /// Backend API base URL — auto-selected by platform.
   static String get apiBaseUrl {
     if (kIsWeb) {
-      return 'http://localhost:8000';//'http://192.168.100.152:8000'; //Mobile version
+      return 'http://localhost:8000'; //Mobile version
     }
     if (isAndroid()) {
       return 'http://localhost:8000'; //'http://192.168.100.152:8000'; //'http://192.168.100.152:8000'; //'http://localhost:8000';  //'http://192.168.100.152:8000'; 'http://localhost:8000';//; //Mobile version
@@ -24,10 +24,10 @@ class AppConstants {
   }
 
   /// Supported languages.
-  static const List<String> languages = ['ru', 'kz'];
+  static const List<String> languages = ['kz', 'ru'];
 
   /// Default language.
-  static const String defaultLang = 'ru';
+  static const String defaultLang = 'kz';
 
   /// TTS speed range (user-facing values, normalized to engine range internally).
   static const double minSpeed = 0.7;

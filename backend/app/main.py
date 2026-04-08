@@ -70,9 +70,44 @@ async def lifespan(app: FastAPI):
     )
 
     # ── TTS ──
+    # Initialize Kazakh TTS (Piper) if enabled in config.
+    # Piper loads the ONNX model once — no per-request overhead.
+    # If it fails, we continue with gTTS only.
     from app.tts.engine import TTSEngine
 
-    tts_engine = TTSEngine()
+    kz_engine = None
+    if settings.kz_tts_enabled:
+        try:
+            from app.tts.kazakh_tts_engine import KazakhTTSEngine
+
+            kz_engine = KazakhTTSEngine(
+                model_path=settings.kz_tts_model_path,
+                config_path=settings.kz_tts_config_path,
+                use_cuda=settings.kz_tts_use_cuda,
+            )
+            logger.info("✅ Kazakh TTS (Piper) engine ready")
+        except ImportError as exc:
+            logger.warning(
+                "Kazakh TTS disabled — piper-tts not installed: %s. "
+                "Install with: pip install piper-tts",
+                exc,
+            )
+        except FileNotFoundError as exc:
+            logger.warning(
+                "Kazakh TTS disabled — model files not found: %s. "
+                "Download from: https://huggingface.co/rhasspy/piper-voices",
+                exc,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Kazakh TTS disabled — initialization failed: %s. "
+                "Falling back to gTTS for all languages.",
+                exc,
+            )
+    else:
+        logger.info("Kazakh TTS (Piper) disabled by config (KZ_TTS_ENABLED=false)")
+
+    tts_engine = TTSEngine(kz_engine=kz_engine)
 
     # ── S3 / Yandex Object Storage — Unknown Manager ──
     unknown_manager = None
@@ -161,11 +196,13 @@ def create_app() -> FastAPI:
     from app.api.routes.scan import router as scan_router
     from app.api.routes.unknown import router as unknown_router
     from app.api.routes.auth import router as auth_router
+    from app.api.routes.tts import router as tts_router
     from app.admin_web.router import router as admin_router
 
     app.include_router(scan_router)
     app.include_router(unknown_router)
     app.include_router(auth_router)
+    app.include_router(tts_router)
     app.include_router(admin_router)
 
     @app.get("/health")

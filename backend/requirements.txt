@@ -18,6 +18,9 @@ numpy>=1.24.0
 # ── TTS ──
 gTTS>=2.4.0
 
+# ── Kazakh TTS (Piper — offline) ──
+piper-tts>=1.2.0
+
 # ── Storage ──
 boto3>=1.29.0
 

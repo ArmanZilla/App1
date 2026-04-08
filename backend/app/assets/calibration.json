@@ -1,0 +1,7 @@
+{
+  "method": "linear",
+  "scale": -0.0018979398800691518,
+  "shift": 2.1883085874672004,
+  "samples": 47,
+  "notes": "distance_m = depth_value*scale + shift (depth_value=median MiDaS depth in bbox)"
+}

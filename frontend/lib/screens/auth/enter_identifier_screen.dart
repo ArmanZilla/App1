@@ -1,17 +1,20 @@
 /// KozAlma AI — Enter Identifier Screen.
 ///
-/// First step of OTP auth: user enters email or phone number.
-/// Channel selector (email / phone) + accessible UI.
+/// First step of OTP auth: user enters email address.
+/// Email-only authentication with language toggle.
 ///
 /// Accessibility: EdgeVolumeController for volume gestures,
 /// AccessibleTapHandler for 1-tap speak / 2-tap action pattern.
 library;
 
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../../core/accessibility.dart';
+import '../../core/app_state.dart';
 import '../../services/auth_api_service.dart';
 import '../../services/tts_service.dart';
 import '../../widgets/edge_volume_controller.dart';
+import '../../widgets/language_toggle.dart';
 import 'enter_code_screen.dart';
 
 class EnterIdentifierScreen extends StatefulWidget {
@@ -25,7 +28,6 @@ class _EnterIdentifierScreenState extends State<EnterIdentifierScreen> {
   final _identifierCtrl = TextEditingController();
   final _authApi = AuthApiService();
   final _tts = TtsService();
-  String _channel = 'email';
   bool _loading = false;
   String _error = '';
 
@@ -33,17 +35,29 @@ class _EnterIdentifierScreenState extends State<EnterIdentifierScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      final lang = context.read<AppState>().language;
       _tts.stop();
-      _tts.speak('Введите ваш email или номер телефона для входа', lang: 'ru');
+      _tts.speak(
+        lang == 'kz'
+            ? 'Кіру үшін электрондық поштаңызды енгізіңіз'
+            : 'Введите ваш email для входа',
+        lang: lang,
+      );
     });
   }
 
   Future<void> _submit() async {
+    final lang = context.read<AppState>().language;
     final identifier = _identifierCtrl.text.trim();
     if (identifier.isEmpty) {
-      setState(() => _error = 'Введите email или номер телефона');
+      setState(() => _error = lang == 'kz'
+          ? 'Электрондық поштаны енгізіңіз'
+          : 'Введите email');
       _tts.stop();
-      _tts.speak('Поле ввода пустое', lang: 'ru');
+      _tts.speak(
+        lang == 'kz' ? 'Енгізу өрісі бос' : 'Поле ввода пустое',
+        lang: lang,
+      );
       return;
     }
 
@@ -54,18 +68,21 @@ class _EnterIdentifierScreenState extends State<EnterIdentifierScreen> {
 
     try {
       final cooldown = await _authApi.requestCode(
-        channel: _channel,
+        channel: 'email',
         identifier: identifier,
       );
       _tts.stop();
-      _tts.speak('Код отправлен', lang: 'ru');
+      _tts.speak(
+        lang == 'kz' ? 'Код жіберілді' : 'Код отправлен',
+        lang: lang,
+      );
 
       if (!mounted) return;
       Navigator.push(
         context,
         MaterialPageRoute(
           builder: (_) => EnterCodeScreen(
-            channel: _channel,
+            channel: 'email',
             identifier: identifier,
             cooldownSeconds: cooldown,
           ),
@@ -74,11 +91,17 @@ class _EnterIdentifierScreenState extends State<EnterIdentifierScreen> {
     } on AuthException catch (e) {
       setState(() => _error = e.message);
       _tts.stop();
-      _tts.speak(e.message, lang: 'ru');
+      _tts.speak(e.message, lang: lang);
     } catch (e) {
-      setState(() => _error = 'Ошибка сети');
+      final msg = lang == 'kz' ? 'Желі қатесі' : 'Ошибка сети';
+      setState(() => _error = msg);
       _tts.stop();
-      _tts.speak('Ошибка сети, попробуйте позже', lang: 'ru');
+      _tts.speak(
+        lang == 'kz'
+            ? 'Желі қатесі, кейінірек көріңіз'
+            : 'Ошибка сети, попробуйте позже',
+        lang: lang,
+      );
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -93,21 +116,32 @@ class _EnterIdentifierScreenState extends State<EnterIdentifierScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final state = context.watch<AppState>();
+    final lang = state.language;
+
     return Scaffold(
       backgroundColor: const Color(0xFF0D0D1A),
-      // EdgeVolumeController: enables left/right edge double-tap for volume
-      // headerExcludeHeight: 0 because this screen has no top nav buttons
       body: EdgeVolumeController(
         ttsService: _tts,
-        lang: 'ru',
-        headerExcludeHeight: 0,
+        lang: lang,
+        headerExcludeHeight: 80,
         child: SafeArea(
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 24),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const SizedBox(height: 60),
+                const SizedBox(height: 16),
+
+                // ── Header with Language Toggle ──
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    LanguageToggle(ttsService: _tts),
+                  ],
+                ),
+
+                const SizedBox(height: 32),
 
                 // Logo / Title
                 const Text(
@@ -122,7 +156,7 @@ class _EnterIdentifierScreenState extends State<EnterIdentifierScreen> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Вход в аккаунт',
+                  lang == 'kz' ? 'Аккаунтқа кіру' : 'Вход в аккаунт',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     color: Colors.white.withValues(alpha: 0.7),
@@ -131,29 +165,13 @@ class _EnterIdentifierScreenState extends State<EnterIdentifierScreen> {
                 ),
                 const SizedBox(height: 48),
 
-                // Channel selector — 1-tap speaks, 2-tap selects
-                Row(
-                  children: [
-                    _channelChip('email', 'Email', Icons.email_outlined),
-                    const SizedBox(width: 12),
-                    _channelChip('phone', 'Телефон', Icons.phone_outlined),
-                  ],
-                ),
-                const SizedBox(height: 20),
-
-                // Input field
-                // NOTE: autofocus removed to prevent keyboard from stealing
-                // gestures on screen launch. User taps field to focus.
+                // Email input field
                 TextField(
                   controller: _identifierCtrl,
-                  keyboardType: _channel == 'email'
-                      ? TextInputType.emailAddress
-                      : TextInputType.phone,
+                  keyboardType: TextInputType.emailAddress,
                   style: const TextStyle(color: Colors.white, fontSize: 18),
                   decoration: InputDecoration(
-                    hintText: _channel == 'email'
-                        ? 'example@mail.com'
-                        : '+7 778 982 6080',
+                    hintText: 'example@mail.com',
                     hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.3)),
                     filled: true,
                     fillColor: Colors.white.withValues(alpha: 0.08),
@@ -165,9 +183,9 @@ class _EnterIdentifierScreenState extends State<EnterIdentifierScreen> {
                       horizontal: 20,
                       vertical: 18,
                     ),
-                    prefixIcon: Icon(
-                      _channel == 'email' ? Icons.email : Icons.phone,
-                      color: const Color(0xFF6C63FF),
+                    prefixIcon: const Icon(
+                      Icons.email,
+                      color: Color(0xFF6C63FF),
                     ),
                   ),
                   onSubmitted: (_) => _submit(),
@@ -188,14 +206,16 @@ class _EnterIdentifierScreenState extends State<EnterIdentifierScreen> {
                 const SizedBox(height: 24),
 
                 // Submit button — AccessibleTapHandler:
-                // 1-tap: speaks "Получить код"
+                // 1-tap: speaks button label
                 // 2-tap: executes _submit()
                 AccessibleTapHandler(
-                  label: 'Получить код',
-                  hint: 'Нажмите дважды чтобы отправить код',
+                  label: lang == 'kz' ? 'Код алу' : 'Получить код',
+                  hint: lang == 'kz'
+                      ? 'Кодты жіберу үшін екі рет басыңыз'
+                      : 'Нажмите дважды чтобы отправить код',
                   onSpeak: (text) {
                     _tts.stop();
-                    _tts.speak(text, lang: 'ru');
+                    _tts.speak(text, lang: lang);
                   },
                   onAction: _loading ? () {} : _submit,
                   child: Container(
@@ -216,9 +236,9 @@ class _EnterIdentifierScreenState extends State<EnterIdentifierScreen> {
                               color: Colors.white,
                             ),
                           )
-                        : const Text(
-                            'Получить код',
-                            style: TextStyle(
+                        : Text(
+                            lang == 'kz' ? 'Код алу' : 'Получить код',
+                            style: const TextStyle(
                               color: Colors.white,
                               fontSize: 18,
                               fontWeight: FontWeight.w600,
@@ -228,60 +248,6 @@ class _EnterIdentifierScreenState extends State<EnterIdentifierScreen> {
                 ),
               ],
             ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  /// Channel chip with AccessibleTapHandler:
-  /// 1-tap: speaks channel name
-  /// 2-tap: selects channel
-  Widget _channelChip(String value, String label, IconData icon) {
-    final selected = _channel == value;
-    return Expanded(
-      child: AccessibleTapHandler(
-        label: label,
-        hint: selected ? 'Уже выбрано' : 'Нажмите дважды чтобы выбрать',
-        onSpeak: (text) {
-          _tts.stop();
-          _tts.speak(text, lang: 'ru');
-        },
-        onAction: () {
-          setState(() => _channel = value);
-          _tts.stop();
-          _tts.speak('$label выбран', lang: 'ru');
-        },
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
-          padding: const EdgeInsets.symmetric(vertical: 14),
-          decoration: BoxDecoration(
-            color: selected
-                ? const Color(0xFF6C63FF).withValues(alpha: 0.2)
-                : Colors.white.withValues(alpha: 0.05),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: selected
-                  ? const Color(0xFF6C63FF)
-                  : Colors.white.withValues(alpha: 0.1),
-              width: selected ? 2 : 1,
-            ),
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(icon,
-                  size: 20,
-                  color: selected ? const Color(0xFF6C63FF) : Colors.white54),
-              const SizedBox(width: 8),
-              Text(
-                label,
-                style: TextStyle(
-                  color: selected ? const Color(0xFF6C63FF) : Colors.white54,
-                  fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
-                ),
-              ),
-            ],
           ),
         ),
       ),

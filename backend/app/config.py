@@ -50,6 +50,15 @@ class Settings(BaseSettings):
     tts_default_lang: str = "ru"
     tts_default_speed: float = 1.0
 
+    # ── Kazakh TTS (Piper — offline) ───────────────────────────────────
+    # Set KZ_TTS_ENABLED=true to use Piper TTS for Kazakh.
+    # When disabled (default), Kazakh falls back to gTTS with 'kk' locale.
+    # Download models from: https://huggingface.co/rhasspy/piper-voices
+    kz_tts_enabled: bool = False
+    kz_tts_model_path: str = "models/kk_KZ-issai-high.onnx"
+    kz_tts_config_path: str = "models/kk_KZ-issai-high.onnx.json"
+    kz_tts_use_cuda: bool = False
+
     # ── Server ──────────────────────────────────────────────────────────
     host: str = "0.0.0.0"
     port: int = 8000

@@ -4,17 +4,44 @@
 library;
 
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'constants.dart';
 
 class AppState extends ChangeNotifier {
+  static const _keyLang = 'koz_language';
+
   // ── Language ──
   String _language = AppConstants.defaultLang;
   String get language => _language;
+
+  /// Load saved language from SharedPreferences.
+  /// Call once at app startup before runApp().
+  Future<void> loadSavedLanguage() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final saved = prefs.getString(_keyLang);
+      if (saved != null && AppConstants.languages.contains(saved)) {
+        _language = saved;
+      }
+    } catch (e) {
+      debugPrint('AppState: failed to load saved language: $e');
+    }
+  }
 
   void setLanguage(String lang) {
     if (AppConstants.languages.contains(lang) && _language != lang) {
       _language = lang;
       notifyListeners();
+      _persistLanguage(lang);
+    }
+  }
+
+  Future<void> _persistLanguage(String lang) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_keyLang, lang);
+    } catch (e) {
+      debugPrint('AppState: failed to persist language: $e');
     }
   }
 

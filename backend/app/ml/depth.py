@@ -1,14 +1,9 @@
-"""
-KozAlma AI — MiDaS Depth Estimation.
-
-Uses Intel MiDaS for monocular depth estimation and converts
-relative depth to approximate metric distance via calibration.
-"""
-
 from __future__ import annotations
 
+import json
 import logging
-from typing import Optional, Tuple
+from pathlib import Path
+from typing import Optional
 
 import cv2
 import numpy as np
@@ -17,21 +12,24 @@ from PIL import Image
 
 logger = logging.getLogger(__name__)
 
-# ── Calibration constants (tune for your camera / use-case) ──
-# Formula: distance_meters ≈ SCALE_FACTOR / (depth_value + EPSILON)
-SCALE_FACTOR = 3.0
 EPSILON = 1e-6
 
 
 class DepthEstimator:
-    """MiDaS-based monocular depth estimator."""
+    """MiDaS-based monocular depth estimator with linear calibration."""
 
     def __init__(self, model_type: str = "MiDaS_small") -> None:
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model_type = model_type
         self._model: Optional[torch.nn.Module] = None
         self._transform = None
+
+        self.calibration_method = "linear"
+        self.scale = 1.0
+        self.shift = 0.0
+
         self._load_model()
+        self._load_calibration()
 
     def _load_model(self) -> None:
         """Load MiDaS model and transforms from torch hub."""
@@ -58,12 +56,36 @@ class DepthEstimator:
             logger.error("Failed to load MiDaS: %s", exc)
             self._model = None
 
+    def _load_calibration(self) -> None:
+        """Load calibration coefficients from JSON."""
+        try:
+            base_dir = Path(__file__).resolve().parents[1]   # app/
+            calib_path = base_dir / "assets" / "calibration.json"
+
+            if not calib_path.exists():
+                logger.warning("Calibration file not found: %s", calib_path)
+                return
+
+            data = json.loads(calib_path.read_text(encoding="utf-8"))
+            self.calibration_method = data.get("method", "linear")
+            self.scale = float(data.get("scale", 1.0))
+            self.shift = float(data.get("shift", 0.0))
+
+            logger.info(
+                "Calibration loaded: method=%s, scale=%s, shift=%s",
+                self.calibration_method,
+                self.scale,
+                self.shift,
+            )
+        except Exception as exc:
+            logger.error("Failed to load calibration.json: %s", exc)
+
     @property
     def is_available(self) -> bool:
         return self._model is not None
 
     def estimate_depth_map(self, image: Image.Image) -> Optional[np.ndarray]:
-        """Return a normalized depth map (H×W float32, 0..1) or None on failure."""
+        """Return raw MiDaS depth map (H×W float32) or None on failure."""
         if not self.is_available:
             return None
 
@@ -84,15 +106,8 @@ class DepthEstimator:
                 align_corners=False,
             ).squeeze()
 
-        depth_map = prediction.cpu().numpy()
-        # Normalize to [0, 1]
-        d_min, d_max = depth_map.min(), depth_map.max()
-        if d_max - d_min > EPSILON:
-            depth_map = (depth_map - d_min) / (d_max - d_min)
-        else:
-            depth_map = np.zeros_like(depth_map)
-
-        return depth_map.astype(np.float32)
+        depth_map = prediction.cpu().numpy().astype(np.float32)
+        return depth_map
 
     def estimate_distance(
         self,
@@ -100,14 +115,14 @@ class DepthEstimator:
         bbox: list[float],
     ) -> float:
         """
-        Approximate distance in meters for a bounding-box region.
+        Estimate distance in meters for a bounding-box region.
 
         Args:
-            depth_map: normalized depth map (H×W).
+            depth_map: raw MiDaS depth map (H×W).
             bbox: [x1, y1, x2, y2] in pixel coords.
 
         Returns:
-            Estimated distance in meters (rough).
+            Estimated distance in meters.
         """
         h, w = depth_map.shape[:2]
         x1 = max(0, int(bbox[0]))
@@ -119,6 +134,15 @@ class DepthEstimator:
         if roi.size == 0:
             return -1.0
 
-        avg_depth = float(np.median(roi))
-        distance = SCALE_FACTOR / (avg_depth + EPSILON)
-        return round(distance, 2)
+        depth_value = float(np.median(roi))
+
+        if self.calibration_method == "linear":
+            distance = depth_value * self.scale + self.shift
+        else:
+            logger.warning("Unknown calibration method: %s", self.calibration_method)
+            distance = -1.0
+
+        if distance < 0:
+            distance = 0.0
+
+        return round(float(distance), 2)

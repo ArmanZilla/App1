@@ -9,7 +9,9 @@ library;
 
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../../core/accessibility.dart';
+import '../../core/app_state.dart';
 import '../../services/auth_api_service.dart';
 import '../../services/tts_service.dart';
 import '../../widgets/edge_volume_controller.dart';
@@ -46,10 +48,13 @@ class _EnterCodeScreenState extends State<EnterCodeScreen> {
     _countdown = widget.cooldownSeconds;
     _startTimer();
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      final lang = context.read<AppState>().language;
       _tts.stop();
       _tts.speak(
-        'Введите шестизначный код, отправленный на ${widget.identifier}',
-        lang: 'ru',
+        lang == 'kz'
+            ? '${widget.identifier} адресіне жіберілген алты санды кодты енгізіңіз'
+            : 'Введите шестизначный код, отправленный на ${widget.identifier}',
+        lang: lang,
       );
     });
   }
@@ -66,11 +71,15 @@ class _EnterCodeScreenState extends State<EnterCodeScreen> {
   }
 
   Future<void> _verify() async {
+    final lang = context.read<AppState>().language;
     final code = _codeCtrl.text.trim();
     if (code.length != 6) {
-      setState(() => _error = 'Код должен содержать 6 цифр');
+      final msg = lang == 'kz'
+          ? 'Код 6 саннан тұруы керек'
+          : 'Код должен содержать 6 цифр';
+      setState(() => _error = msg);
       _tts.stop();
-      _tts.speak('Код должен содержать 6 цифр', lang: 'ru');
+      _tts.speak(msg, lang: lang);
       return;
     }
 
@@ -86,7 +95,10 @@ class _EnterCodeScreenState extends State<EnterCodeScreen> {
         code: code,
       );
       _tts.stop();
-      _tts.speak('Вход выполнен успешно', lang: 'ru');
+      _tts.speak(
+        lang == 'kz' ? 'Кіру сәтті орындалды' : 'Вход выполнен успешно',
+        lang: lang,
+      );
 
       if (!mounted) return;
       // Navigate to main app, clearing auth stack
@@ -98,11 +110,12 @@ class _EnterCodeScreenState extends State<EnterCodeScreen> {
     } on AuthException catch (e) {
       setState(() => _error = e.message);
       _tts.stop();
-      _tts.speak(e.message, lang: 'ru');
+      _tts.speak(e.message, lang: lang);
     } catch (e) {
-      setState(() => _error = 'Ошибка сети');
+      final msg = lang == 'kz' ? 'Желі қатесі' : 'Ошибка сети';
+      setState(() => _error = msg);
       _tts.stop();
-      _tts.speak('Ошибка сети', lang: 'ru');
+      _tts.speak(msg, lang: lang);
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -110,6 +123,8 @@ class _EnterCodeScreenState extends State<EnterCodeScreen> {
 
   Future<void> _resend() async {
     if (_countdown > 0) return;
+
+    final lang = context.read<AppState>().language;
 
     setState(() {
       _loading = true;
@@ -124,11 +139,14 @@ class _EnterCodeScreenState extends State<EnterCodeScreen> {
       setState(() => _countdown = cooldown);
       _startTimer();
       _tts.stop();
-      _tts.speak('Код отправлен повторно', lang: 'ru');
+      _tts.speak(
+        lang == 'kz' ? 'Код қайта жіберілді' : 'Код отправлен повторно',
+        lang: lang,
+      );
     } on AuthException catch (e) {
       setState(() => _error = e.message);
     } catch (e) {
-      setState(() => _error = 'Ошибка сети');
+      setState(() => _error = lang == 'kz' ? 'Желі қатесі' : 'Ошибка сети');
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -144,13 +162,16 @@ class _EnterCodeScreenState extends State<EnterCodeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final state = context.watch<AppState>();
+    final lang = state.language;
+
     return Scaffold(
       backgroundColor: const Color(0xFF0D0D1A),
       // EdgeVolumeController: enables left/right edge double-tap for volume
       // headerExcludeHeight: 80 to exclude Back button area
       body: EdgeVolumeController(
         ttsService: _tts,
-        lang: 'ru',
+        lang: lang,
         headerExcludeHeight: 80,
         child: SafeArea(
           child: Padding(
@@ -161,16 +182,18 @@ class _EnterCodeScreenState extends State<EnterCodeScreen> {
                 const SizedBox(height: 16),
 
                 // Back button — AccessibleTapHandler:
-                // 1-tap: speaks "Назад"
+                // 1-tap: speaks "Назад" / "Артқа"
                 // 2-tap: navigates back
                 Align(
                   alignment: Alignment.centerLeft,
                   child: AccessibleTapHandler(
-                    label: 'Назад',
-                    hint: 'Нажмите дважды чтобы вернуться',
+                    label: lang == 'kz' ? 'Артқа' : 'Назад',
+                    hint: lang == 'kz'
+                        ? 'Оралу үшін екі рет басыңыз'
+                        : 'Нажмите дважды чтобы вернуться',
                     onSpeak: (text) {
                       _tts.stop();
-                      _tts.speak(text, lang: 'ru');
+                      _tts.speak(text, lang: lang);
                     },
                     onAction: () => Navigator.pop(context),
                     child: const Padding(
@@ -183,10 +206,10 @@ class _EnterCodeScreenState extends State<EnterCodeScreen> {
                 const SizedBox(height: 32),
 
                 // Title
-                const Text(
-                  'Введите код',
+                Text(
+                  lang == 'kz' ? 'Кодты енгізіңіз' : 'Введите код',
                   textAlign: TextAlign.center,
-                  style: TextStyle(
+                  style: const TextStyle(
                     color: Colors.white,
                     fontSize: 28,
                     fontWeight: FontWeight.w800,
@@ -194,7 +217,9 @@ class _EnterCodeScreenState extends State<EnterCodeScreen> {
                 ),
                 const SizedBox(height: 12),
                 Text(
-                  'Код отправлен на\n${widget.identifier}',
+                  lang == 'kz'
+                      ? 'Код жіберілді\n${widget.identifier}'
+                      : 'Код отправлен на\n${widget.identifier}',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     color: Colors.white.withValues(alpha: 0.6),
@@ -205,8 +230,6 @@ class _EnterCodeScreenState extends State<EnterCodeScreen> {
                 const SizedBox(height: 40),
 
                 // Code input
-                // NOTE: autofocus removed to prevent keyboard from stealing
-                // gestures on screen launch. User taps field to focus.
                 TextField(
                   controller: _codeCtrl,
                   keyboardType: TextInputType.number,
@@ -252,15 +275,15 @@ class _EnterCodeScreenState extends State<EnterCodeScreen> {
 
                 const SizedBox(height: 24),
 
-                // Verify button — AccessibleTapHandler:
-                // 1-tap: speaks "Подтвердить"
-                // 2-tap: executes _verify()
+                // Verify button
                 AccessibleTapHandler(
-                  label: 'Подтвердить',
-                  hint: 'Нажмите дважды чтобы подтвердить код',
+                  label: lang == 'kz' ? 'Растау' : 'Подтвердить',
+                  hint: lang == 'kz'
+                      ? 'Кодты растау үшін екі рет басыңыз'
+                      : 'Нажмите дважды чтобы подтвердить код',
                   onSpeak: (text) {
                     _tts.stop();
-                    _tts.speak(text, lang: 'ru');
+                    _tts.speak(text, lang: lang);
                   },
                   onAction: _loading ? () {} : _verify,
                   child: Container(
@@ -281,9 +304,9 @@ class _EnterCodeScreenState extends State<EnterCodeScreen> {
                               color: Colors.white,
                             ),
                           )
-                        : const Text(
-                            'Подтвердить',
-                            style: TextStyle(
+                        : Text(
+                            lang == 'kz' ? 'Растау' : 'Подтвердить',
+                            style: const TextStyle(
                               color: Colors.white,
                               fontSize: 18,
                               fontWeight: FontWeight.w600,
@@ -294,28 +317,38 @@ class _EnterCodeScreenState extends State<EnterCodeScreen> {
 
                 const SizedBox(height: 20),
 
-                // Resend button — AccessibleTapHandler:
-                // 1-tap: speaks resend status (countdown or "Отправить повторно")
-                // 2-tap: resends code (only if countdown == 0)
+                // Resend button
                 Center(
                   child: AccessibleTapHandler(
                     label: _countdown > 0
-                        ? 'Отправить повторно через $_countdown секунд'
-                        : 'Отправить повторно',
+                        ? (lang == 'kz'
+                            ? '$_countdown секундтан кейін қайта жіберу'
+                            : 'Отправить повторно через $_countdown секунд')
+                        : (lang == 'kz'
+                            ? 'Қайта жіберу'
+                            : 'Отправить повторно'),
                     hint: _countdown > 0
-                        ? 'Подождите $_countdown секунд'
-                        : 'Нажмите дважды чтобы отправить код повторно',
+                        ? (lang == 'kz'
+                            ? '$_countdown секунд күтіңіз'
+                            : 'Подождите $_countdown секунд')
+                        : (lang == 'kz'
+                            ? 'Кодты қайта жіберу үшін екі рет басыңыз'
+                            : 'Нажмите дважды чтобы отправить код повторно'),
                     onSpeak: (text) {
                       _tts.stop();
-                      _tts.speak(text, lang: 'ru');
+                      _tts.speak(text, lang: lang);
                     },
                     onAction: _countdown > 0 ? () {} : _resend,
                     child: Padding(
                       padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
                       child: Text(
                         _countdown > 0
-                            ? 'Отправить повторно через $_countdown с'
-                            : 'Отправить повторно',
+                            ? (lang == 'kz'
+                                ? '$_countdown с кейін қайта жіберу'
+                                : 'Отправить повторно через $_countdown с')
+                            : (lang == 'kz'
+                                ? 'Қайта жіберу'
+                                : 'Отправить повторно'),
                         style: TextStyle(
                           color: _countdown > 0
                               ? Colors.white.withValues(alpha: 0.3)

@@ -9,11 +9,13 @@ import 'screens/auth/enter_identifier_screen.dart';
 import 'services/token_store.dart';
 import 'services/auth_api_service.dart';
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  final appState = AppState();
+  await appState.loadSavedLanguage();
   runApp(
-    ChangeNotifierProvider(
-      create: (_) => AppState(),
+    ChangeNotifierProvider.value(
+      value: appState,
       child: const KozAlmaApp(),
     ),
   );

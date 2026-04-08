@@ -40,6 +40,7 @@ _PHRASES = {
         "meter": "метр",
         "meters_2_4": "метра",
         "meters": "метров",
+        "from_you": "от вас",
         "left": "слева",
         "center": "по центру",
         "right": "справа",
@@ -51,6 +52,8 @@ _PHRASES = {
         "meter": "метр",
         "meters_2_4": "метр",
         "meters": "метр",
+        "at_place": "жерде",
+        "exists": "бар",
         "left": "сол жақта",
         "center": "ортада",
         "right": "оң жақта",
@@ -89,6 +92,9 @@ def _meters_word(n: float, lang: str) -> str:
     p = _get_phrases(lang)
     if lang != "ru":
         return p["meters"]
+    # In Russian, any decimal (e.g. 1.7, 3.2) always takes genitive singular
+    if n != int(n):
+        return p["meters_2_4"]
     n_int = int(abs(n))
     mod10 = n_int % 10
     mod100 = n_int % 100
@@ -106,9 +112,9 @@ def build_detection_text(
     """Build a fully localized text description from detection dicts.
 
     Each dict should have: class_name, position, distance_m (optional).
-    Returns a complete sentence like:
-      RU: "Обнаружено: ноутбук — слева, примерно 6.6 метров."
-      KZ: "Табылды: ноутбук — сол жақта, шамамен 6.6 метр."
+    Returns natural-sounding sentences:
+      RU: "Обнаружено: человек слева, примерно 1.7 метра от вас."
+      KZ: "Табылды: сол жақта шамамен 1.7 метр жерде адам бар."
     """
     p = _get_phrases(lang)
 
@@ -122,10 +128,27 @@ def build_detection_text(
         pos = localize_position(det["position"], lang)
         dist = det.get("distance_m")
 
-        if dist is not None and dist > 0:
-            word = _meters_word(dist, lang)
-            parts.append(f"{name} — {pos}, {p['approx']} {dist:.1f} {word}.")
+        if lang == "kz":
+            if dist is not None and dist > 0:
+                word = _meters_word(dist, lang)
+                # "Сол жақта шамамен 1.7 метр жерде адам бар."
+                parts.append(
+                    f"{pos} {p['approx']} {dist:.1f} {word} "
+                    f"{p['at_place']} {name} {p['exists']}."
+                )
+            else:
+                # "Сол жақта адам бар."
+                parts.append(f"{pos} {name} {p['exists']}.")
         else:
-            parts.append(f"{name} — {pos}.")
+            if dist is not None and dist > 0:
+                word = _meters_word(dist, lang)
+                # "Человек слева, примерно 1.7 метра от вас."
+                parts.append(
+                    f"{name} {pos}, {p['approx']} {dist:.1f} {word} "
+                    f"{p['from_you']}."
+                )
+            else:
+                # "Человек слева."
+                parts.append(f"{name} {pos}.")
 
     return " ".join(parts)

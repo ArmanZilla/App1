@@ -11,7 +11,7 @@ koz_alma_ai/
 │   │   ├── main.py          # App entry point
 │   │   ├── config.py        # Settings (pydantic-settings)
 │   │   ├── ml/              # YOLOv8 detector + MiDaS depth
-│   │   ├── tts/             # gTTS engine (RU/KZ)
+│   │   ├── tts/             # TTS engines (gTTS + ESPnet Kazakh)
 │   │   ├── storage/         # S3 unknown image manager
 │   │   ├── api/routes/      # /scan, /unknown endpoints
 │   │   └── admin_web/       # Admin panel (Jinja2)
@@ -37,6 +37,8 @@ cd backend
 python -m venv venv
 venv\Scripts\activate        # Windows
 # source venv/bin/activate   # macOS/Linux
+ docker start redis
+
 
 pip install -r requirements.txt
 
@@ -60,7 +62,6 @@ flutter run
  docker exec -it redis redis-cli ping 
 
 
- docker start redis
 
 
 ```
@@ -88,6 +89,8 @@ python scripts/data_checks.py --data ../data/data.yaml
 | `ADMIN_PASSWORD` | Admin panel password |
 | `YOLO_WEIGHTS_PATH` | Path to YOLOv8 weights (best.pt) |
 | `MIDAS_MODEL` | MiDaS model variant (default: MiDaS_small) |
+| `KZ_TTS_ENABLED` | Enable Kazakh TTS via Edge TTS (`true`/`false`, default: `false`) |
+| `KZ_TTS_VOICE` | Edge TTS voice (default: `kk-KZ-AigulNeural`) |
 
 ## API Endpoints
 
@@ -114,6 +117,38 @@ python scripts/data_checks.py --data ../data/data.yaml
 - **Language toggle** in header: 1 tap speaks, 2 taps switches
 - **Speed control**: left/right edge zones on camera screen
 - **Auto flashlight**: enables when low light detected
+
+## Kazakh TTS (Hybrid Architecture)
+
+The backend uses a **hybrid TTS** approach:
+
+| Language | Engine | Output | Requires Internet |
+|----------|--------|--------|-------------------|
+| Russian (`ru`) | gTTS (Google) | MP3 | Yes |
+| Kazakh (`kz`) | Edge TTS (Microsoft) | MP3 | Yes |
+
+**How it works:** The `TTSEngine` dispatcher routes `lang="kz"` to the Edge TTS-based `KazakhTTSEngine` and `lang="ru"` to gTTS. If the Kazakh engine fails or is not installed, it falls back to gTTS automatically.
+
+### Enabling Kazakh TTS
+
+```bash
+# 1. Install edge-tts (lightweight, ~50 KB)
+pip install edge-tts
+
+# 2. Enable in .env
+KZ_TTS_ENABLED=true
+KZ_TTS_VOICE=kk-KZ-AigulNeural   # or kk-KZ-DauletNeural (male)
+
+# 3. Restart backend
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+### Performance Notes
+
+- **Latency:** ~1–2 seconds per sentence (neural TTS via Microsoft)
+- **No model download:** No large models to cache — requests go to Microsoft's API
+- **Voices:** `kk-KZ-AigulNeural` (female) or `kk-KZ-DauletNeural` (male)
+- **Numbers:** Automatically expanded to Kazakh words (e.g., "1.5 метр" → "бір бүтін бес метр")
 
 ## License
 
