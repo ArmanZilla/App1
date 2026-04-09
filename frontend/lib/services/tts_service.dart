@@ -1,23 +1,28 @@
 /// KozAlma AI — TTS Service.
 ///
-/// Uses flutter_tts for local speech synthesis (RU/KZ) and
-/// audioplayers for server-generated base64 audio playback.
+/// Uses flutter_tts for local speech synthesis (Russian only) and
+/// backend Piper for Kazakh speech on ALL platforms (Web + Mobile).
 ///
 /// Platform behavior:
-///   - Mobile: flutter_tts for speak(), audioplayers for base64 audio
-///   - Web: browser speechSynthesis for speak(),
-///          browser AudioElement for base64 audio playback
+///   - Mobile RU: flutter_tts (fast, good quality)
+///   - Mobile KZ: backend Piper via /tts/speak → audioplayers
+///   - Web RU: browser speechSynthesis (instant, good quality)
+///   - Web KZ: backend Piper via /tts/speak → AudioElement
+///   - Scan results: playBase64Audio() (unchanged, separate path)
 ///
 /// Features:
-///   - Interrupt mode: new speak() call cancels current speech
+///   - Interrupt mode: new speak() always calls stop() first
+///   - Only one audio plays at a time
+///   - In-flight deduplication for Kazakh backend requests
 ///   - Platform-aware speed normalization (user range 0.7–3.0)
 ///   - Supports both WAV (Piper/Kazakh) and MP3 (gTTS/Russian)
+///   - Fallback to flutter_tts if backend unreachable (last resort)
 library;
 
 import 'dart:convert';
-import 'dart:typed_data';
-import '../core/constants.dart';
 import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
+import '../core/constants.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 
@@ -45,6 +50,17 @@ class TtsService {
   /// User-facing speech rate (0.7 – 3.0).
   double _userRate = 1.0;
   double get rate => _userRate;
+
+  /// ── In-flight deduplication for Kazakh backend requests ──
+  /// Tracks the text currently being synthesized via backend,
+  /// so we don't fire duplicate HTTP requests for the same phrase.
+  String? _pendingKzText;
+
+  /// Simple client-side cache for recently played Kazakh phrases.
+  /// Key = "text|speed", Value = base64 audio.
+  /// Avoids redundant HTTP calls for phrases spoken multiple times.
+  final Map<String, String> _kzAudioCache = {};
+  static const int _kzCacheMax = 32;
 
   TtsService() {
     _init();
@@ -96,39 +112,43 @@ class TtsService {
     return (engineMin + t * (engineMax - engineMin)).clamp(0.1, 1.0);
   }
 
-  /// Speak text locally via flutter_tts (mobile) or browser
-  /// speechSynthesis (web).
+  /// Speak text with proper TTS routing:
+  ///   - Kazakh → backend Piper on ALL platforms
+  ///   - Russian → local/browser TTS (fast path)
   ///
-  /// If [interrupt] is true (default), cancels any current speech first.
+  /// Always stops current speech before starting new speech.
+  /// Deduplicates in-flight Kazakh backend requests.
   Future<void> speak(String text, {String lang = 'kz', bool interrupt = true}) async {
     await _init();
 
+    // ── Always stop current playback to prevent overlap ──
+    if (interrupt) {
+      await stop();
+    }
+
+    if (text.trim().isEmpty) return;
+
+    // ── Kazakh → backend Piper on ALL platforms ──
+    if (lang == 'kz') {
+      await _speakKzViaBackend(text);
+      return;
+    }
+
+    // ── Russian → platform-native fast path ──
     if (!_localTtsAvailable) {
-      // Web: route Kazakh through backend Piper for correct pronunciation.
-      // Russian uses browser speechSynthesis (works fine).
+      // Web: browser speechSynthesis for Russian
       try {
-        if (interrupt) {
-          await stop();
-        }
-        if (lang == 'kz') {
-          await platform_audio.speakTextViaBackend(
-            text, lang, _volume, _userRate, AppConstants.apiBaseUrl,
-          );
-        } else {
-          await platform_audio.speakTextWeb(
-            text, _locale(lang), _volume, _userRate,
-          );
-        }
+        await platform_audio.speakTextWeb(
+          text, _locale(lang), _volume, _userRate,
+        );
       } catch (e) {
         debugPrint('TTS: web speak error: $e');
       }
       return;
     }
 
+    // Mobile: flutter_tts for Russian
     try {
-      if (interrupt) {
-        await stop();
-      }
       await _flutterTts!.setLanguage(_locale(lang));
       await _flutterTts!.setVolume(_volume);
       await _flutterTts!.setSpeechRate(_normalizeRate(_userRate));
@@ -138,8 +158,132 @@ class TtsService {
     }
   }
 
+  /// ── Kazakh speech via backend Piper ──
+  ///
+  /// Used on BOTH Web and Mobile for consistent Piper voice.
+  /// Includes:
+  ///   - Client-side cache for repeated short phrases
+  ///   - In-flight deduplication (won't fire duplicate HTTP calls)
+  ///   - Network timeout (4 seconds)
+  ///   - Fallback to flutter_tts as last resort
+  Future<void> _speakKzViaBackend(String text) async {
+    // ── Dedup: skip if same text is already in-flight ──
+    if (_pendingKzText == text) {
+      debugPrint('TTS: skipping duplicate in-flight request: ${text.substring(0, text.length.clamp(0, 30))}');
+      return;
+    }
+
+    final cacheKey = '$text|${_userRate.toStringAsFixed(2)}';
+
+    // ── Client-side cache check ──
+    if (_kzAudioCache.containsKey(cacheKey)) {
+      debugPrint('TTS: client cache hit for KZ phrase');
+      try {
+        await _playAudioBytes(_kzAudioCache[cacheKey]!);
+        return;
+      } catch (e) {
+        debugPrint('TTS: cached audio playback failed: $e');
+        _kzAudioCache.remove(cacheKey);
+      }
+    }
+
+    _pendingKzText = text;
+
+    try {
+      // ── Web platform: use platform_audio (dart:html HttpRequest) ──
+      if (kIsWeb) {
+        try {
+          await platform_audio.speakTextViaBackend(
+            text, 'kz', _volume, _userRate, AppConstants.apiBaseUrl,
+          );
+          _pendingKzText = null;
+          return;
+        } catch (e) {
+          debugPrint('TTS: web backend speak failed: $e');
+          // Fall through to fallback
+        }
+        _pendingKzText = null;
+        return;
+      }
+
+      // ── Mobile platform: HTTP call via http package ──
+      final url = '${AppConstants.apiBaseUrl}/tts/speak';
+      final body = jsonEncode({
+        'text': text,
+        'lang': 'kz',
+        'speed': _userRate,
+      });
+
+      final response = await http.post(
+        Uri.parse(url),
+        headers: {'Content-Type': 'application/json'},
+        body: body,
+      ).timeout(const Duration(seconds: 4));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        final audioB64 = data['audio_base64'] as String?;
+
+        if (audioB64 != null && audioB64.isNotEmpty) {
+          // Cache the result for future use
+          if (text.length < 200) {
+            if (_kzAudioCache.length >= _kzCacheMax) {
+              // Remove oldest entry (FIFO)
+              _kzAudioCache.remove(_kzAudioCache.keys.first);
+            }
+            _kzAudioCache[cacheKey] = audioB64;
+          }
+
+          await _playAudioBytes(audioB64);
+          _pendingKzText = null;
+          return;
+        }
+      }
+
+      debugPrint('TTS: backend /tts/speak returned no audio (status=${response.statusCode})');
+      // Fall through to fallback
+    } catch (e) {
+      debugPrint('TTS: backend KZ speak failed: $e');
+      // Fall through to fallback
+    }
+
+    _pendingKzText = null;
+
+    // ── Last-resort fallback: flutter_tts ──
+    // Only on mobile where flutter_tts is available.
+    // Quality will be poor but at least the user hears something.
+    if (_localTtsAvailable && _flutterTts != null) {
+      try {
+        debugPrint('TTS: falling back to flutter_tts for KZ (last resort)');
+        await _flutterTts!.setLanguage('kk-KZ');
+        await _flutterTts!.setVolume(_volume);
+        await _flutterTts!.setSpeechRate(_normalizeRate(_userRate));
+        await _flutterTts!.speak(text);
+      } catch (e) {
+        debugPrint('TTS: flutter_tts fallback also failed: $e');
+      }
+    }
+  }
+
+  /// Play base64-encoded audio bytes via audioplayers (mobile)
+  /// or browser AudioElement (web).
+  Future<void> _playAudioBytes(String base64Audio) async {
+    if (kIsWeb) {
+      await platform_audio.playBase64AudioPlatform(
+        base64Audio, _player, _volume,
+      );
+    } else {
+      final bytes = base64Decode(base64Audio);
+      debugPrint('TTS: playing ${bytes.length} bytes via audioplayers');
+      await _player.setVolume(_volume);
+      await _player.play(BytesSource(Uint8List.fromList(bytes)));
+    }
+  }
+
   /// Stop any ongoing speech and audio playback.
   Future<void> stop() async {
+    _pendingKzText = null;
+
     // Stop browser speech + audio (no-ops on mobile)
     try {
       platform_audio.stopSpeechWeb();
@@ -242,5 +386,7 @@ class TtsService {
       _flutterTts?.stop();
     } catch (_) {}
     _player.dispose();
+    _kzAudioCache.clear();
+    _pendingKzText = null;
   }
 }
