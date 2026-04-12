@@ -33,7 +33,7 @@
 | Layer | Technology |
 |-------|-----------|
 | **Backend** | Python 3.11, FastAPI, Uvicorn |
-| **ML Detection** | YOLOv8 (Ultralytics), custom 39-class model |
+| **ML Detection** | YOLOv8 (Ultralytics), custom 29-class model |
 | **Depth Estimation** | MiDaS (Intel ISL) |
 | **TTS — Russian** | gTTS (Google Translate TTS) |
 | **TTS — Kazakh** | Piper TTS (offline ONNX model) |
